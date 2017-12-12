@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Humans Nation</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link rel=stylesheet href="css/base.css"/>
+</head>
+<body>
+
+<script src="js/three.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/OrbitControls.js"></script>
+<script src="js/THREEx.KeyboardState.js"></script>
+<script src="js/THREEx.FullScreen.js"></script>
+<script src="js/THREEx.WindowResize.js"></script>
+<script src="js/sweetalert.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.js"></script>
+
+<!-- jQuery code to display an information button and box when clicked. -->
+<script src="js/jquery-1.9.1.js"></script>
+<script src="js/jquery-ui.js"></script>
+<link rel=stylesheet href="css/jquery-ui.css"/>
+<link rel=stylesheet href="css/info.css"/>
+<script src="js/info.js"></script>
+<div id="infoButton"></div>
+<!--<div id="infoBox" title="Demo Information">-->
+<!--Movement controls: <br/>-->
+<!--<ul>-->
+<!--<li>W/S: Translate Forward/Backward-->
+<!--<li>A/D: Rotate Left/Right-->
+<!--<li>Q/E: Translate Left/Right-->
+<!--<li>R/F: Rotate Up/Down-->
+<!--<li>Z: Reset position and rotation.-->
+<!--</ul>-->
+<!--This project is written by Maryam Gholami and @Mesod, inspired by an open source project written by Stemkoski.-->
+<!--</div>-->
+<!-- ------------------------------------------------------------ -->
+
+<div id="ThreeJS" style="position: absolute; left:0px; top:0px"></div>
+<script>
+    /*
+     Three.js "tutorials by example"
+     Author: Lee Stemkoski
+     Date: July 2013 (three.js v59dev)
+     */
+
+    var SERVER_ADDRESS = 'http://localhost:8081';
+
+    // MAIN
+
+    // standard global variables
+    var container, scene, camera, renderer, controls;
+    var keyboard = new THREEx.KeyboardState();
+    var clock = new THREE.Clock();
+    // custom global variables
+    var cube;
+    var peopleGroup = [];
+    var socket;
+
+    init();
+    animate();
+
+    function drawHuman(posX, posZ) {
+        var person = new THREE.Group();
+        scene.add(person);
+
+        //foot
+        var geometryF = new THREE.CylinderGeometry(2, 2, 30, 32);
+        var materialF = new THREE.MeshNormalMaterial();
+        var foot1 = new THREE.Mesh(geometryF, materialF);
+        var foot2 = new THREE.Mesh(geometryF, materialF);
+        scene.add(foot1);
+        scene.add(foot2);
+        foot1.position.set(5, 15, 0);
+        foot2.position.set(-5, 15, 0);
+        person.add(foot1);
+        person.add(foot2);
+
+        //stomach
+        var geometryS = new THREE.BoxGeometry(20, 40, 10);
+        var materialS = new THREE.MeshNormalMaterial();
+        var body = new THREE.Mesh(geometryS, materialS);
+        scene.add(body);
+        body.position.set(0, 50, 0);
+        person.add(body);
+
+        //hand
+        var geometryH = new THREE.CylinderGeometry(1.5, 1.5, 20, 32);
+        var materialH = new THREE.MeshNormalMaterial();
+        var hand1 = new THREE.Mesh(geometryH, materialH);
+        var hand2 = new THREE.Mesh(geometryH, materialH);
+        scene.add(hand1);
+        scene.add(hand2);
+        hand1.position.set(13, 55, 0);
+        hand1.rotation.z = +10;
+        hand2.position.set(-13, 55, 0);
+        hand2.rotation.z = -10;
+        person.add(hand1);
+        person.add(hand2);
+
+        //head
+        var sgeometry = new THREE.SphereGeometry(8, 32, 32);
+        var smaterial = new THREE.MeshNormalMaterial();
+        var sphere = new THREE.Mesh(sgeometry, smaterial);
+        scene.add(sphere);
+        sphere.position.set(0, 78, 0);
+        person.add(sphere);
+
+        person.position.set(posX, 0, posZ);
+        peopleGroup.push(person);
+    }
+
+
+    // FUNCTIONS
+    function init() {
+        socket = io.connect(SERVER_ADDRESS);
+        // SCENE
+        scene = new THREE.Scene();
+        // CAMERA
+        var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+        var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+        camera = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR);
+        scene.add(camera);
+        camera.position.set(0, 150, 400);
+        camera.lookAt(scene.position);
+        // RENDERER
+        if (Detector.webgl)
+            renderer = new THREE.WebGLRenderer({antialias: true});
+        else
+            renderer = new THREE.CanvasRenderer();
+        renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+        container = document.getElementById('ThreeJS');
+        container.appendChild(renderer.domElement);
+        // EVENTS
+        THREEx.WindowResize(renderer, camera);
+        THREEx.FullScreen.bindKey({charCode: 'm'.charCodeAt(0)});
+
+
+        // LIGHT
+        var light = new THREE.PointLight(0xffffff);
+        light.position.set(0, 250, 0);
+        scene.add(light);
+        // FLOOR
+        var floorTexture = new THREE.ImageUtils.loadTexture('images/checkerboard.jpg');
+        floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(15, 15);
+        var floorMaterial = new THREE.MeshBasicMaterial({map: floorTexture, side: THREE.DoubleSide});
+        var floorGeometry = new THREE.PlaneGeometry(1000, 1000, 10, 10);
+        var floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.position.y = -0.5;
+        floor.rotation.x = Math.PI / 2;
+        scene.add(floor);
+        // SKYBOX/FOG
+        var skyBoxGeometry = new THREE.CubeGeometry(10000, 10000, 10000);
+        var skyBoxMaterial = new THREE.MeshBasicMaterial({color: 0x9999ff, side: THREE.BackSide});
+        var skyBox = new THREE.Mesh(skyBoxGeometry, skyBoxMaterial);
+        scene.add(skyBox);
+//	scene.fog = new THREE.FogExp2( 0x9999ff, 0.00025 );
+
+        ////////////
+        // CUSTOM //
+        ////////////
+
+        // create an array with six textures for a cool cube
+//        var materialArray = [];
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/xpos.png')}));
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/xneg.png')}));
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/ypos.png')}));
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/yneg.png')}));
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/zpos.png')}));
+//        materialArray.push(new THREE.MeshBasicMaterial({map: THREE.ImageUtils.loadTexture('images/zneg.png')}));
+//        var MovingCubeMat = new THREE.MeshFaceMaterial(materialArray);
+        var MovingCubeMat = new THREE.MeshNormalMaterial();
+//        var MovingCubeGeom = new THREE.CubeGeometry(50, 50, 50, 1, 1, 1, materialArray);
+        var MovingCubeGeom = new THREE.CubeGeometry(10, 10, 10);
+        PointerCube = new THREE.Mesh(MovingCubeGeom, MovingCubeMat);
+        PointerCube.position.set(-420, 500, +600);
+        PointerCube.rotation.x = -Math.PI / 5;
+        PointerCube.rotation.y = -Math.PI / 5;
+        PointerCube.rotation.z = -Math.PI / 5;
+        scene.add(PointerCube);
+
+
+//    drawChair(-5,-5,-5);
+//        for (var z = -9; z <= 10; z++) {
+//            drawHuman(0, 50 * z);
+//            for (var i = 1; i < 10; i++) {
+//                drawHuman(50 * i, z * 50);
+//                drawHuman(-50 * i, z * 50);
+//            }
+//        }
+
+    }
+
+    var floatingCubes = [];
+    var cubesId = [];
+
+    function addFloatingCube(data) {
+        var MovingCubeMat = new THREE.MeshNormalMaterial();
+//        var MovingCubeGeom = new THREE.CubeGeometry(50, 50, 50, 1, 1, 1, materialArray);
+        var MovingCubeGeom = new THREE.CubeGeometry(10, 10, 10);
+        floatingCube = new THREE.Mesh(MovingCubeGeom, MovingCubeMat);
+        var p = data.position;
+        floatingCube.position.set(p.x, p.y, p.z);
+//        floatingCube.rotation.x = -Math.PI / 5;
+//        floatingCube.rotation.y = -Math.PI / 5;
+//        floatingCube.rotation.z = -Math.PI / 5;
+
+        scene.add(floatingCube);
+        cubesId.push(data.id);
+        floatingCubes.push(floatingCube);
+    }
+
+
+    var PointerCube;
+
+    function animate() {
+        requestAnimationFrame(animate);
+        render();
+        update();
+    }
+
+    function update() {
+        var delta = clock.getDelta(); // seconds.
+        var moveDistance = 200 * delta; // 200 pixels per second
+        var rotateAngle = Math.PI / 2 * delta;   // pi/2 radians (90 degrees) per second
+
+        // local transformations
+
+        // move forwards/backwards/left/right
+        if (keyboard.pressed("W")) {
+            PointerCube.translateZ(-moveDistance);
+//            handleMove(PointerCube.position);
+        }
+        if (keyboard.pressed("S")) {
+            PointerCube.translateZ(moveDistance);
+//            handleMove(PointerCube.position);
+        }
+        if (keyboard.pressed("Q")) {
+            PointerCube.translateX(-moveDistance);
+//            handleMove(PointerCube.position);
+        }
+        if (keyboard.pressed("E")) {
+            PointerCube.translateX(moveDistance);
+//            handleMove(PointerCube.position);
+        }
+        // rotate left/right/up/down
+        var rotation_matrix = new THREE.Matrix4().identity();
+        if (keyboard.pressed("A"))
+            PointerCube.rotateOnAxis(new THREE.Vector3(0, 1, 0), rotateAngle);
+        if (keyboard.pressed("D"))
+            PointerCube.rotateOnAxis(new THREE.Vector3(0, 1, 0), -rotateAngle);
+        if (keyboard.pressed("R"))
+            PointerCube.rotateOnAxis(new THREE.Vector3(1, 0, 0), rotateAngle);
+        if (keyboard.pressed("F"))
+            PointerCube.rotateOnAxis(new THREE.Vector3(1, 0, 0), -rotateAngle);
+
+        if (keyboard.pressed("H"))
+            swal("W/S: Translate Forward/Backward--**--A/D: Rotate Left/Right--**--Q/E: Translate Left/Right--**--R/F: Rotate Up/Down--**--Z: Reset position and rotation.----" +
+                "");
+
+        if (keyboard.pressed("Z")) {
+            PointerCube.position.set(-420, 500, +600);
+            PointerCube.rotation.x = -Math.PI / 5;
+            PointerCube.rotation.y = -Math.PI / 5;
+            PointerCube.rotation.z = -Math.PI / 5;
+        }
+
+        var relativeCameraOffset = new THREE.Vector3(0, 50, 200);
+
+        var cameraOffset = relativeCameraOffset.applyMatrix4(PointerCube.matrixWorld);
+
+        camera.position.x = cameraOffset.x;
+        camera.position.y = cameraOffset.y;
+        camera.position.z = cameraOffset.z;
+        camera.lookAt(PointerCube.position);
+
+        socket.on('cubesNewPos', handlePositionChange);
+
+//        setInterval(addFloatingCube,1000);
+
+        //check to see if place changes in 1 sec
+
+
+//        setInterval(function() {
+//            floatingCubes.forEach(function(e) {
+//               e.position.x += 5;
+//                console.log(e.position);
+//            });
+//        },5000);
+
+        //camera.updateMatrix();
+        //camera.updateProjectionMatrix();
+
+    }
+
+    function handlePositionChange(data) {
+        console.log(data);
+        console.log(data.id);
+        console.log(data.position);
+        console.log(cubesId);
+        console.log(cubesId.indexOf(data.id));
+        if (cubesId.indexOf(data.id) != -1) {
+            var p = data.position;
+            floatingCubes[cubesId.indexOf(data.id)].position.set(p.x, p.y, p.z);
+        } else {
+            console.log('here');
+            addFloatingCube(data);
+        }
+    }
+
+    function checkId(id) {
+        floatingCubes.forEach(function (el) {
+            if (el.id == id) {
+                return el;
+            }
+        });
+        return null;
+    }
+
+    var timer;
+
+    function handleMove() {
+        socket.emit('newPos', PointerCube.position);
+    }
+
+    function render() {
+        renderer.render(scene, camera);
+    }
+
+    setInterval(handleMove, 500);
+
+</script>
+
+</body>
+</html>
